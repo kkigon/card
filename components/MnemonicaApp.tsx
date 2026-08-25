@@ -22,7 +22,10 @@ type Progress = {
   studiedToday: number;
   totalAnswers: number;
   correctAnswers: number;
+  dailyBest: Record<string, number>;
 };
+
+type GrowthPoint = { date: string; score: number };
 
 type TestQuestion = {
   cardNumber: number;
@@ -68,6 +71,7 @@ const DEFAULT_PROGRESS: Progress = {
   studiedToday: 0,
   totalAnswers: 0,
   correctAnswers: 0,
+  dailyBest: {},
 };
 
 const MODE_LABELS: Record<StudyMode, string> = {
@@ -134,6 +138,66 @@ function EmptySession({ onRestart }: { onRestart: () => void }) {
       <h2>오늘의 52장을<br />모두 넘겼어요.</h2>
       <p>잠깐 쉬었다가 한 번 더 섞어보세요. 짧게 자주 보는 편이 오래 남습니다.</p>
       <button className="primary-button" onClick={onRestart}>다시 섞어서 시작</button>
+    </section>
+  );
+}
+
+function GrowthChart({ points }: { points: GrowthPoint[] }) {
+  if (!points.length) {
+    return (
+      <section className="growth-card empty-growth">
+        <div className="growth-heading"><div><p className="eyebrow">DAILY BEST</p><h2>최고 정답률 성장</h2></div><span>—</span></div>
+        <div className="growth-empty-mark">↗</div>
+        <p>시험을 한 번 끝내면 오늘의 최고 정답률부터 기록해요.</p>
+        <small>같은 날 여러 번 보면 가장 높은 점수만 남습니다.</small>
+      </section>
+    );
+  }
+
+  const width = 360;
+  const height = 168;
+  const inset = { left: 30, right: 12, top: 16, bottom: 29 };
+  const plotWidth = width - inset.left - inset.right;
+  const plotHeight = height - inset.top - inset.bottom;
+  const xFor = (index: number) => points.length === 1 ? inset.left + plotWidth / 2 : inset.left + (index / (points.length - 1)) * plotWidth;
+  const yFor = (score: number) => inset.top + ((100 - score) / 100) * plotHeight;
+  const coordinates = points.map((point, index) => `${xFor(index)},${yFor(point.score)}`).join(' ');
+  const areaCoordinates = points.length > 1
+    ? `${inset.left},${height - inset.bottom} ${coordinates} ${width - inset.right},${height - inset.bottom}`
+    : '';
+  const first = points[0];
+  const latest = points[points.length - 1];
+  const peak = Math.max(...points.map((point) => point.score));
+  const growth = latest.score - first.score;
+  const dateLabel = (date: string) => {
+    const [, month, day] = date.split('-');
+    return `${Number(month)}/${Number(day)}`;
+  };
+  const shouldLabel = (index: number) => points.length <= 7 || index === 0 || index === points.length - 1 || index === Math.floor(points.length / 2);
+
+  return (
+    <section className="growth-card">
+      <div className="growth-heading">
+        <div><p className="eyebrow">DAILY BEST · 최근 {points.length}일</p><h2>최고 정답률 성장</h2></div>
+        <span className={growth >= 0 ? 'positive' : 'negative'}>{growth >= 0 ? '+' : ''}{growth}%p</span>
+      </div>
+      <div className="growth-summary"><span>최근 <b>{latest.score}%</b></span><span>최고 <b>{peak}%</b></span></div>
+      <svg className="growth-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`날짜별 최고 정답률 그래프. 최근 ${latest.score}퍼센트, 최고 ${peak}퍼센트`}>
+        {[0, 25, 50, 75, 100].map((score) => {
+          const y = yFor(score);
+          return <g key={score}><line x1={inset.left} y1={y} x2={width - inset.right} y2={y} className="chart-grid" /><text x={inset.left - 6} y={y + 3} className="chart-y-label">{score}</text></g>;
+        })}
+        {areaCoordinates && <polygon points={areaCoordinates} className="chart-area" />}
+        {points.length > 1 && <polyline points={coordinates} className="chart-line" />}
+        {points.map((point, index) => (
+          <g key={point.date}>
+            <circle cx={xFor(index)} cy={yFor(point.score)} r={index === points.length - 1 ? 5 : 3.5} className={index === points.length - 1 ? 'chart-dot latest' : 'chart-dot'} />
+            {index === points.length - 1 && <text x={xFor(index)} y={yFor(point.score) - 10} className="chart-score-label">{point.score}%</text>}
+            {shouldLabel(index) && <text x={xFor(index)} y={height - 8} className="chart-x-label">{dateLabel(point.date)}</text>}
+          </g>
+        ))}
+      </svg>
+      <p className="growth-footnote">각 날짜에 완료한 시험 중 가장 높은 정답률을 표시합니다.</p>
     </section>
   );
 }
@@ -322,6 +386,14 @@ export default function MnemonicaApp() {
 
   const nextQuestion = () => {
     if (questionIndex >= questions.length - 1) {
+      const completedPercent = Math.round((testScore / questions.length) * 100);
+      const today = dateKey();
+      setProgress((previous) => {
+        const dailyBest = previous.dailyBest ?? {};
+        const previousBest = dailyBest[today] ?? 0;
+        if (Object.prototype.hasOwnProperty.call(dailyBest, today) && completedPercent <= previousBest) return previous;
+        return { ...previous, dailyBest: { ...dailyBest, [today]: completedPercent } };
+      });
       setTestComplete(true);
       return;
     }
@@ -331,6 +403,10 @@ export default function MnemonicaApp() {
 
   const accuracy = progress.totalAnswers ? Math.round((progress.correctAnswers / progress.totalAnswers) * 100) : 0;
   const knownPercent = Math.round((progress.known.length / 52) * 100);
+  const growthPoints = useMemo<GrowthPoint[]>(() => Object.entries(progress.dailyBest ?? {})
+    .sort(([firstDate], [secondDate]) => firstDate.localeCompare(secondDate))
+    .slice(-14)
+    .map(([date, score]) => ({ date, score })), [progress.dailyBest]);
 
   const renderMemorize = () => (
     <section className="view memorize-view" aria-labelledby="memorize-title">
@@ -503,6 +579,7 @@ export default function MnemonicaApp() {
     <section className="view" aria-labelledby="stack-title">
       <div className="view-heading"><div><p className="eyebrow">FULL STACK</p><h1 id="stack-title">52장 한눈에 보기</h1></div><span className="round-stat">{progress.known.length}</span></div>
       <div className="stats-strip"><div><span>외운 카드</span><b>{progress.known.length}<small>/52</small></b></div><div><span>연속 학습</span><b>{progress.streak}<small>일</small></b></div><div><span>정답률</span><b>{accuracy}<small>%</small></b></div></div>
+      <GrowthChart points={growthPoints} />
       <label className="search-box"><span>⌕</span><input value={stackSearch} onChange={(event) => setStackSearch(event.target.value)} placeholder="번호, 카드 검색 (예: 17, 9H)" /><button onClick={() => setStackSearch('')} aria-label="검색어 지우기">{stackSearch ? '×' : ''}</button></label>
       <div className="suit-filters">
         <button className={suitFilter === 'all' ? 'selected' : ''} onClick={() => setSuitFilter('all')}>전체</button>
