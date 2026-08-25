@@ -12,6 +12,8 @@
 - 로그인 없이 브라우저에 진도, 연속 학습일, 정답률 저장
 - 모바일 터치 및 안전 영역 대응
 
+카드 페이스 이미지는 MIT 라이선스의 [hayeah/playing-cards-assets](https://github.com/hayeah/playing-cards-assets)를 사용합니다. 라이선스 전문은 `public/cards/LICENSE.txt`에 포함되어 있습니다.
+
 ## 로컬 실행
 
 ```bash
