@@ -12,7 +12,7 @@
 - 로그인 없이 브라우저에 진도, 연속 학습일, 정답률 저장
 - 모바일 터치 및 안전 영역 대응
 
-카드 페이스 이미지는 MIT 라이선스의 [hayeah/playing-cards-assets](https://github.com/hayeah/playing-cards-assets)를 사용합니다. 라이선스 전문은 `public/cards/LICENSE.txt`에 포함되어 있습니다.
+카드 페이스와 Rider Back 이미지는 LGPL-3.0 라이선스의 [Xadeck/xCards](https://github.com/Xadeck/xCards)를 사용합니다. 전통적인 포커 카드 비율, 표준 여백과 인덱스, 영미식 코트 디자인을 유지한 이미지 세트이며 라이선스 전문은 `public/cards/LICENSE.txt`에 포함되어 있습니다.
 
 ## 로컬 실행
 

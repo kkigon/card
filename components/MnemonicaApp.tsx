@@ -433,7 +433,9 @@ export default function MnemonicaApp() {
       <div className="view-heading"><div><p className="eyebrow">QUICK TEST</p><h1 id="test-title">기억을 꺼내볼까요?</h1></div><span className="round-stat">{accuracy}%</span></div>
       <p className="view-intro">정답을 보기 전에 먼저 떠올리는 연습이 암기를 오래 남겨줍니다.</p>
       <div className="test-hero">
-        <div className="orbit-card first"><CardVisual card={MNEMONICA_STACK[0]} mini /></div><div className="orbit-card second">17</div><span>?</span>
+        <div className="orbit-card first"><CardVisual card={MNEMONICA_STACK[0]} mini /></div>
+        <div className="orbit-card second back-card"><img src="./cards/bicycle_blue.png" alt="Bicycle blue Rider Back" draggable={false} /></div>
+        <span>?</span>
       </div>
       <div className="setting-group"><label>출제 방식</label><SegmentedMode value={testMode} onChange={setTestMode} /></div>
       <div className="setting-group"><label>문제 수</label><div className="count-options">{[10, 20, 52].map((count) => <button key={count} className={testCount === count ? 'selected' : ''} onClick={() => setTestCount(count)}><b>{count}</b><span>문제</span></button>)}</div></div>
