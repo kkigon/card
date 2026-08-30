@@ -125,6 +125,26 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(31, 117, 82,
 .course-toolbar > button { display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 0 4px; border: 0; background: transparent; color: var(--green); font-size: 11px; font-weight: 850; cursor: pointer; }
 .course-toolbar > button span { font-size: 18px; }
 .course-toolbar > span { padding: 7px 10px; border-radius: 99px; background: rgba(31,117,82,.08); color: var(--green); font-size: 9px; font-weight: 850; }
+.choose-heading { margin: 22px 2px 17px; }
+.choose-heading h1 { margin: 0; font-size: clamp(26px, 7.2vw, 34px); line-height: 1.12; letter-spacing: -.05em; word-break: keep-all; }
+.choose-heading > p:last-child { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; word-break: keep-all; }
+.unlock-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.unlock-grid > button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 104px; padding: 10px 4px 7px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.62); cursor: pointer; transition: transform .13s ease, border-color .13s ease, background .13s ease; }
+.unlock-grid > button:not(:disabled):active { transform: scale(.97); }
+.unlock-grid > button.selected { border-color: var(--green); background: rgba(31,117,82,.09); box-shadow: inset 0 0 0 1px var(--green), 0 8px 16px rgba(31,117,82,.08); transform: translateY(-2px); }
+.unlock-grid > button.learned { opacity: .42; cursor: default; }
+.unlock-grid .card-face.mini { width: 38px; height: 55px; }
+.unlock-number { position: absolute; top: 8px; left: 9px; color: var(--muted); font-size: 9px; font-weight: 850; }
+.unlock-code { font-family: Georgia, serif; font-size: 13px; font-weight: 700; }
+.unlock-grid > button > i { position: absolute; top: 7px; right: 7px; display: grid; place-items: center; width: 17px; height: 17px; border-radius: 50%; background: var(--green); color: white; font-size: 9px; font-style: normal; }
+.choice-confirm { position: fixed; z-index: 19; left: 50%; bottom: calc(87px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(calc(100% - 32px), 486px); min-height: 66px; padding: 10px 10px 10px 15px; border: 1px solid rgba(255,255,255,.11); border-radius: 19px; background: rgba(23,37,30,.96); color: white; box-shadow: 0 15px 34px rgba(19,31,24,.25); backdrop-filter: blur(16px); transform: translateX(-50%); animation: choice-in .18s ease both; }
+@keyframes choice-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+.choice-confirm > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.choice-confirm > div > span { color: #9fada5; font-size: 8px; font-weight: 750; }
+.choice-confirm > div > strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.choice-confirm > div b { font-family: Georgia, serif; font-size: 15px; }
+.choice-confirm > button { flex: 0 0 auto; min-height: 44px; padding: 0 13px; border: 0; border-radius: 13px; background: var(--lime); color: var(--green-dark); font-size: 10px; font-weight: 900; cursor: pointer; }
+.choice-confirm > button span { margin-left: 5px; font-size: 14px; }
 .course-progress-card { margin-bottom: 13px; padding: 13px 15px 11px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.58); }
 .course-progress-card > div:first-child { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 750; }
 .course-progress-card strong { color: var(--ink); font-size: 17px; }
@@ -305,6 +325,8 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgba(31, 117, 82,
 @media (max-width: 370px) {
   .app-shell { padding-inline: 13px; }
   .learning-grid > button { grid-template-columns: 22px 43px 1fr; padding-inline: 7px; }
+  .unlock-grid { gap: 5px; }
+  .unlock-grid > button { min-height: 99px; }
   .swipe-actions button b { font-size: 10px; }
   .focus-chain { padding-inline: 11px; }
 }

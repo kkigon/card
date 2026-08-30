@@ -17,6 +17,8 @@ type StackCard = {
 
 type Progress = {
   known: number[];
+  incrementalOrder: number[];
+  /** Kept for migrating progress saved by the previous course version. */
   incrementalMastered: number;
   streak: number;
   lastStudy: string | null;
@@ -67,6 +69,7 @@ export const MNEMONICA_STACK: StackCard[] = RAW_STACK.map(([rank, suit], index) 
 
 const DEFAULT_PROGRESS: Progress = {
   known: [],
+  incrementalOrder: [],
   incrementalMastered: 0,
   streak: 0,
   lastStudy: null,
@@ -219,7 +222,9 @@ export default function MnemonicaApp() {
   const [learnRange, setLearnRange] = useState(0);
   const [focusedCard, setFocusedCard] = useState(1);
   const [learnView, setLearnView] = useState<'overview' | 'incremental'>('overview');
-  const [incrementalStage, setIncrementalStage] = useState<'teach' | 'quiz' | 'result'>('teach');
+  const [incrementalStage, setIncrementalStage] = useState<'choose' | 'teach' | 'quiz' | 'result'>('choose');
+  const [incrementalChoice, setIncrementalChoice] = useState<number | null>(null);
+  const [incrementalTarget, setIncrementalTarget] = useState<number | null>(null);
   const [incrementalQuestions, setIncrementalQuestions] = useState<TestQuestion[]>([]);
   const [incrementalIndex, setIncrementalIndex] = useState(0);
   const [incrementalSelected, setIncrementalSelected] = useState<number | null>(null);
@@ -249,7 +254,18 @@ export default function MnemonicaApp() {
       const stored = window.localStorage.getItem('mnemonica-progress-v1');
       if (stored) {
         const parsed = JSON.parse(stored) as Progress;
-        storedProgress = { ...DEFAULT_PROGRESS, ...parsed, studiedToday: parsed.lastStudy === dateKey() ? parsed.studiedToday : 0 };
+        const legacyCount = Math.max(0, Math.min(MNEMONICA_STACK.length, parsed.incrementalMastered ?? 0));
+        const rawOrder = Array.isArray(parsed.incrementalOrder)
+          ? parsed.incrementalOrder
+          : Array.from({ length: legacyCount }, (_, index) => index + 1);
+        const incrementalOrder = Array.from(new Set(rawOrder.filter((number) => Number.isInteger(number) && number >= 1 && number <= MNEMONICA_STACK.length)));
+        storedProgress = {
+          ...DEFAULT_PROGRESS,
+          ...parsed,
+          incrementalOrder,
+          incrementalMastered: incrementalOrder.length,
+          studiedToday: parsed.lastStudy === dateKey() ? parsed.studiedToday : 0,
+        };
       }
       const savedMode = window.localStorage.getItem('mnemonica-mode-v1') as StudyMode | null;
       if (savedMode && MODE_LABELS[savedMode]) storedMode = savedMode;
@@ -417,8 +433,9 @@ export default function MnemonicaApp() {
   };
 
   const startIncrementalQuiz = () => {
-    const learnedCount = Math.min(progress.incrementalMastered + 1, MNEMONICA_STACK.length);
-    const learnedNumbers = Array.from({ length: learnedCount }, (_, index) => index + 1);
+    if (incrementalTarget === null) return;
+    const learnedNumbers = [...progress.incrementalOrder, incrementalTarget];
+    const learnedCount = learnedNumbers.length;
     const nextQuestions = shuffle(learnedNumbers).map((cardNumber, index) => {
       const direction: Direction = (index + learnedCount) % 2 === 0 ? 'card-to-number' : 'number-to-card';
       const distractors = shuffle(MNEMONICA_STACK
@@ -461,12 +478,15 @@ export default function MnemonicaApp() {
     const perfect = incrementalScore === incrementalQuestions.length;
     recordDailyBest(completedPercent);
     setIncrementalPerfect(perfect);
-    if (perfect) {
-      const learnedCount = incrementalQuestions.length;
+    if (perfect && incrementalTarget !== null) {
+      const unlockedCard = incrementalTarget;
       setProgress((previous) => ({
         ...previous,
-        incrementalMastered: Math.max(previous.incrementalMastered, learnedCount),
-        known: Array.from(new Set([...previous.known, ...Array.from({ length: learnedCount }, (_, index) => index + 1)])),
+        incrementalOrder: previous.incrementalOrder.includes(unlockedCard)
+          ? previous.incrementalOrder
+          : [...previous.incrementalOrder, unlockedCard],
+        incrementalMastered: Math.max(previous.incrementalMastered, previous.incrementalOrder.length + 1),
+        known: Array.from(new Set([...previous.known, ...previous.incrementalOrder, unlockedCard])),
       }));
     }
     setIncrementalStage('result');
@@ -475,11 +495,27 @@ export default function MnemonicaApp() {
 
   const continueIncrementalCourse = () => {
     setIncrementalQuestions([]);
+    setIncrementalChoice(null);
+    setIncrementalTarget(null);
     setIncrementalIndex(0);
     setIncrementalSelected(null);
     setIncrementalScore(0);
     setIncrementalWrong([]);
     setIncrementalPerfect(false);
+    setIncrementalStage('choose');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const confirmIncrementalChoice = () => {
+    if (incrementalChoice === null || progress.incrementalOrder.includes(incrementalChoice)) return;
+    setIncrementalTarget(incrementalChoice);
+    setIncrementalChoice(null);
+    setIncrementalStage('teach');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const reviewIncrementalCard = () => {
+    setIncrementalSelected(null);
     setIncrementalStage('teach');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -490,7 +526,7 @@ export default function MnemonicaApp() {
       setTimeout(() => setIncrementalResetArmed(false), 3000);
       return;
     }
-    setProgress((previous) => ({ ...previous, incrementalMastered: 0 }));
+    setProgress((previous) => ({ ...previous, incrementalOrder: [], incrementalMastered: 0 }));
     setIncrementalResetArmed(false);
     continueIncrementalCourse();
     showToast('누적 코스를 처음부터 시작해요');
@@ -560,8 +596,10 @@ export default function MnemonicaApp() {
   const rangeEnd = rangeStart + 12;
   const rangeCards = MNEMONICA_STACK.slice(rangeStart - 1, rangeEnd);
   const focused = MNEMONICA_STACK[focusedCard - 1];
-  const incrementalTargetCount = Math.min(progress.incrementalMastered + 1, MNEMONICA_STACK.length);
-  const incrementalTargetCard = MNEMONICA_STACK[incrementalTargetCount - 1];
+  const incrementalLearnedCount = progress.incrementalOrder.length;
+  const incrementalNextCount = Math.min(incrementalLearnedCount + 1, MNEMONICA_STACK.length);
+  const incrementalTargetCard = incrementalTarget === null ? null : MNEMONICA_STACK[incrementalTarget - 1];
+  const incrementalChoiceCard = incrementalChoice === null ? null : MNEMONICA_STACK[incrementalChoice - 1];
 
   const renderIncrementalLearn = () => {
     if (incrementalStage === 'quiz' && incrementalQuestions.length) {
@@ -595,14 +633,14 @@ export default function MnemonicaApp() {
           <p className="eyebrow">CUMULATIVE TEST</p>
           <div className="score-ring" style={{ '--score': `${percent * 3.6}deg` } as React.CSSProperties}><div><strong>{percent}</strong><span>점</span></div></div>
           <h1 id="course-result-title">{incrementalPerfect ? `${incrementalQuestions.length}장 누적 통과!` : '모두 맞을 때까지 한 번 더.'}</h1>
-          <p>{incrementalQuestions.length}문제 중 {incrementalScore}개 정답{incrementalPerfect ? ' · 다음 카드를 배울 수 있어요.' : ` · ${incrementalWrong.length}장을 다시 연결해보세요.`}</p>
+          <p>{incrementalQuestions.length}문제 중 {incrementalScore}개 정답{incrementalPerfect ? ' · 다음에 배울 카드를 직접 고를 수 있어요.' : ` · ${incrementalWrong.length}장을 다시 연결해보세요.`}</p>
           <div className="result-stats"><div><span>정답</span><b>{incrementalScore}</b></div><div><span>오답</span><b>{incrementalQuestions.length - incrementalScore}</b></div><div><span>통과 조건</span><b>100%</b></div></div>
           {incrementalPerfect ? (
-            <button className="primary-button wide" onClick={continueIncrementalCourse}>{incrementalQuestions.length === MNEMONICA_STACK.length ? '완료 화면 보기' : '다음 카드 배우기'} <span>→</span></button>
+            <button className="primary-button wide" onClick={continueIncrementalCourse}>{incrementalQuestions.length === MNEMONICA_STACK.length ? '완료 화면 보기' : '다음 카드 고르기'} <span>→</span></button>
           ) : (
             <>
               <button className="primary-button wide" onClick={startIncrementalQuiz}>{incrementalQuestions.length}장 다시 시험보기</button>
-              <button className="secondary-button wide" onClick={continueIncrementalCourse}>새 카드 연결 다시 보기</button>
+              <button className="secondary-button wide" onClick={reviewIncrementalCard}>새 카드 연결 다시 보기</button>
             </>
           )}
           <button className="text-button centered" onClick={() => setLearnView('overview')}>학습 홈으로 나가기</button>
@@ -610,7 +648,7 @@ export default function MnemonicaApp() {
       );
     }
 
-    if (progress.incrementalMastered >= MNEMONICA_STACK.length) {
+    if (incrementalLearnedCount >= MNEMONICA_STACK.length) {
       return (
         <section className="view course-view" aria-labelledby="course-complete-title">
           <div className="course-toolbar"><button onClick={() => setLearnView('overview')}><span>←</span> 학습 홈</button><span>52 / 52 완료</span></div>
@@ -626,27 +664,67 @@ export default function MnemonicaApp() {
       );
     }
 
+    if (incrementalStage === 'choose' || !incrementalTargetCard) {
+      return (
+        <section className="view course-view choose-card-view" aria-labelledby="choose-card-title">
+          <div className="course-toolbar"><button onClick={() => setLearnView('overview')}><span>←</span> 학습 홈</button><span>{incrementalLearnedCount} / 52 완료</span></div>
+          <div className="course-progress-card">
+            <div><span>누적 코스</span><strong>{incrementalLearnedCount}<small>/52</small></strong></div>
+            <div className="progress-track"><span style={{ width: `${(incrementalLearnedCount / 52) * 100}%` }} /></div>
+            <small>남은 {52 - incrementalLearnedCount}장 중 원하는 카드를 선택하세요</small>
+          </div>
+          <div className="choose-heading">
+            <p className="eyebrow">CHOOSE YOUR NEXT CARD</p>
+            <h1 id="choose-card-title">다음으로 해금할 카드를<br />직접 골라보세요.</h1>
+            <p>지금 가장 외우고 싶은 카드를 누른 뒤 선택을 확정하세요.</p>
+          </div>
+          <div className="unlock-grid" aria-label="다음 학습 카드 선택">
+            {MNEMONICA_STACK.map((card) => {
+              const learned = progress.incrementalOrder.includes(card.number);
+              const selected = incrementalChoice === card.number;
+              return (
+                <button key={card.number} className={`${learned ? 'learned' : ''} ${selected ? 'selected' : ''}`} onClick={() => setIncrementalChoice(card.number)} disabled={learned} aria-label={`${card.number}번 ${card.rank}${card.symbol}${learned ? ', 학습 완료' : ', 다음 카드로 선택'}`} aria-pressed={selected}>
+                  <span className="unlock-number">{card.number}</span>
+                  <CardVisual card={card} mini />
+                  <span className={card.suit === 'hearts' || card.suit === 'diamonds' ? 'unlock-code red-suit' : 'unlock-code'}>{card.rank}{card.symbol}</span>
+                  {learned && <i>✓</i>}
+                </button>
+              );
+            })}
+          </div>
+          {incrementalChoiceCard && (
+            <div className="choice-confirm">
+              <div><span>다음 카드</span><strong>{incrementalChoiceCard.number}번 · <b className={incrementalChoiceCard.suit === 'hearts' || incrementalChoiceCard.suit === 'diamonds' ? 'red-suit' : ''}>{incrementalChoiceCard.rank}{incrementalChoiceCard.symbol}</b></strong></div>
+              <button onClick={confirmIncrementalChoice}>이 카드 선택 <span>→</span></button>
+            </div>
+          )}
+          {incrementalLearnedCount > 0 && <button className={`text-button centered ${incrementalResetArmed ? 'armed' : ''}`} onClick={resetIncrementalCourse}>{incrementalResetArmed ? '정말 처음부터 시작' : '누적 코스 초기화'}</button>}
+        </section>
+      );
+    }
+
     return (
       <section className="view course-view" aria-labelledby="incremental-title">
-        <div className="course-toolbar"><button onClick={() => setLearnView('overview')}><span>←</span> 학습 홈</button><span>{progress.incrementalMastered} / 52 완료</span></div>
+        <div className="course-toolbar"><button onClick={() => setLearnView('overview')}><span>←</span> 학습 홈</button><span>{incrementalLearnedCount} / 52 완료</span></div>
         <div className="course-progress-card">
-          <div><span>누적 코스</span><strong>{progress.incrementalMastered}<small>/52</small></strong></div>
-          <div className="progress-track"><span style={{ width: `${(progress.incrementalMastered / 52) * 100}%` }} /></div>
-          <small>이번 단계를 통과하면 {incrementalTargetCount}장 완료</small>
+          <div><span>누적 코스</span><strong>{incrementalLearnedCount}<small>/52</small></strong></div>
+          <div className="progress-track"><span style={{ width: `${(incrementalLearnedCount / 52) * 100}%` }} /></div>
+          <small>이번 단계를 통과하면 {incrementalNextCount}장 완료</small>
         </div>
         <div className="teach-panel">
-          <p className="eyebrow">CARD {incrementalTargetCount} · NEW</p>
-          <h1 id="incremental-title">{incrementalTargetCount}번과 이 카드를<br />하나로 연결하세요.</h1>
+          <p className="eyebrow">CARD {incrementalNextCount} · NEW</p>
+          <h1 id="incremental-title">{incrementalTargetCard.number}번과 이 카드를<br />하나로 연결하세요.</h1>
           <div className="association-pair">
-            <span className="course-number"><small>STACK</small>{incrementalTargetCount}</span>
+            <span className="course-number"><small>STACK</small>{incrementalTargetCard.number}</span>
             <span className="association-arrow">↔</span>
             <div className="incremental-teach-card"><CardVisual card={incrementalTargetCard} /></div>
           </div>
-          <p className="association-readout"><strong>{incrementalTargetCount}번</strong><span>은</span><strong className={incrementalTargetCard.suit === 'hearts' || incrementalTargetCard.suit === 'diamonds' ? 'red-suit' : ''}>{incrementalTargetCard.rank}{incrementalTargetCard.symbol}</strong></p>
+          <p className="association-readout"><strong>{incrementalTargetCard.number}번</strong><span>은</span><strong className={incrementalTargetCard.suit === 'hearts' || incrementalTargetCard.suit === 'diamonds' ? 'red-suit' : ''}>{incrementalTargetCard.rank}{incrementalTargetCard.symbol}</strong></p>
           <p className="teach-tip">번호와 카드 이름을 소리 내어 3번 읽은 뒤 시험을 시작해보세요.</p>
-          <button className="primary-button wide course-start" onClick={startIncrementalQuiz}>지금까지 {incrementalTargetCount}장 시험보기 <span>→</span></button>
+          <button className="primary-button wide course-start" onClick={startIncrementalQuiz}>지금까지 {incrementalNextCount}장 시험보기 <span>→</span></button>
+          <button className="text-button centered" onClick={() => { setIncrementalTarget(null); setIncrementalStage('choose'); }}>다른 카드 고르기</button>
         </div>
-        {progress.incrementalMastered > 0 && <button className={`text-button centered ${incrementalResetArmed ? 'armed' : ''}`} onClick={resetIncrementalCourse}>{incrementalResetArmed ? '정말 처음부터 시작' : '누적 코스 초기화'}</button>}
+        {incrementalLearnedCount > 0 && <button className={`text-button centered ${incrementalResetArmed ? 'armed' : ''}`} onClick={resetIncrementalCourse}>{incrementalResetArmed ? '정말 처음부터 시작' : '누적 코스 초기화'}</button>}
       </section>
     );
   };
@@ -659,11 +737,11 @@ export default function MnemonicaApp() {
         <p className="view-intro">한 장씩 누적하거나, 13장 구간의 앞뒤 연결을 살펴보세요.</p>
 
         <section className="incremental-entry" aria-labelledby="incremental-entry-title">
-          <div className="course-entry-heading"><span className="course-badge">추천 코스</span><span>{progress.incrementalMastered}/52</span></div>
+          <div className="course-entry-heading"><span className="course-badge">추천 코스</span><span>{incrementalLearnedCount}/52</span></div>
           <h2 id="incremental-entry-title">1장씩 누적 암기</h2>
-          <p>새 카드 1장을 배운 뒤, 지금까지 배운 카드를 모두 맞히면 다음 장이 열립니다.</p>
-          <div className="progress-track"><span style={{ width: `${(progress.incrementalMastered / 52) * 100}%` }} /></div>
-          <button className="primary-button wide" onClick={() => { setLearnView('incremental'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>{progress.incrementalMastered ? '이어서 배우기' : '첫 카드 배우기'} <span>→</span></button>
+          <p>다음으로 배울 카드를 직접 고르고, 지금까지 배운 카드를 모두 맞히면 한 장씩 해금됩니다.</p>
+          <div className="progress-track"><span style={{ width: `${(incrementalLearnedCount / 52) * 100}%` }} /></div>
+          <button className="primary-button wide" onClick={() => { setLearnView('incremental'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>{incrementalLearnedCount ? '이어서 배우기' : '첫 카드 고르기'} <span>→</span></button>
         </section>
 
         <div className="section-title learn-section-title"><div><h2>13장씩 연결하기</h2><p>구간과 이웃 카드로 흐름을 익혀요</p></div><span>{knownPercent}%</span></div>
