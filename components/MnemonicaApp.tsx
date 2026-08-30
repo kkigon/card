@@ -6,6 +6,8 @@ type Suit = 'clubs' | 'hearts' | 'diamonds' | 'spades';
 type Direction = 'card-to-number' | 'number-to-card';
 type StudyMode = Direction | 'mixed';
 type Tab = 'memorize' | 'learn' | 'test' | 'stack';
+type TestSource = 'all' | 'learned';
+type IncrementalQuizPurpose = 'unlock' | 'review';
 
 type StackCard = {
   number: number;
@@ -231,8 +233,10 @@ export default function MnemonicaApp() {
   const [incrementalScore, setIncrementalScore] = useState(0);
   const [incrementalWrong, setIncrementalWrong] = useState<number[]>([]);
   const [incrementalPerfect, setIncrementalPerfect] = useState(false);
+  const [incrementalQuizPurpose, setIncrementalQuizPurpose] = useState<IncrementalQuizPurpose>('unlock');
   const [incrementalResetArmed, setIncrementalResetArmed] = useState(false);
   const [testMode, setTestMode] = useState<StudyMode>('mixed');
+  const [testSource, setTestSource] = useState<TestSource>('all');
   const [testCount, setTestCount] = useState(10);
   const [questions, setQuestions] = useState<TestQuestion[]>([]);
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -389,14 +393,16 @@ export default function MnemonicaApp() {
     setRevealed((value) => !value);
   };
 
-  const startTest = (ids?: number[]) => {
-    const source = ids?.length ? ids : MNEMONICA_STACK.map((card) => card.number);
+  const startTest = (ids?: number[], optionIds?: number[]) => {
+    const source = ids ?? MNEMONICA_STACK.map((card) => card.number);
+    if (!source.length) return;
+    const optionSource = optionIds ?? source;
     const selected = shuffle(source).slice(0, Math.min(testCount, source.length));
     const nextQuestions = selected.map((cardNumber, index) => {
       const direction: Direction = testMode === 'mixed'
         ? (index % 2 ? 'number-to-card' : 'card-to-number')
         : testMode;
-      const distractors = shuffle(MNEMONICA_STACK.map((card) => card.number).filter((number) => number !== cardNumber)).slice(0, 3);
+      const distractors = shuffle(optionSource.filter((number) => number !== cardNumber)).slice(0, 3);
       return { cardNumber, direction, options: shuffle([cardNumber, ...distractors]) };
     });
     setQuestions(nextQuestions);
@@ -432,15 +438,16 @@ export default function MnemonicaApp() {
     setSelectedAnswer(null);
   };
 
-  const startIncrementalQuiz = () => {
-    if (incrementalTarget === null) return;
-    const learnedNumbers = [...progress.incrementalOrder, incrementalTarget];
+  const startIncrementalQuiz = (purpose: IncrementalQuizPurpose = 'unlock') => {
+    if (purpose === 'unlock' && incrementalTarget === null) return;
+    const learnedNumbers = purpose === 'review'
+      ? progress.incrementalOrder
+      : [...progress.incrementalOrder, incrementalTarget as number];
+    if (!learnedNumbers.length) return;
     const learnedCount = learnedNumbers.length;
     const nextQuestions = shuffle(learnedNumbers).map((cardNumber, index) => {
       const direction: Direction = (index + learnedCount) % 2 === 0 ? 'card-to-number' : 'number-to-card';
-      const distractors = shuffle(MNEMONICA_STACK
-        .map((card) => card.number)
-        .filter((number) => number !== cardNumber)).slice(0, 3);
+      const distractors = shuffle(learnedNumbers.filter((number) => number !== cardNumber)).slice(0, 3);
       return { cardNumber, direction, options: shuffle([cardNumber, ...distractors]) };
     });
     setIncrementalQuestions(nextQuestions);
@@ -449,6 +456,7 @@ export default function MnemonicaApp() {
     setIncrementalScore(0);
     setIncrementalWrong([]);
     setIncrementalPerfect(false);
+    setIncrementalQuizPurpose(purpose);
     setIncrementalStage('quiz');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -478,7 +486,7 @@ export default function MnemonicaApp() {
     const perfect = incrementalScore === incrementalQuestions.length;
     recordDailyBest(completedPercent);
     setIncrementalPerfect(perfect);
-    if (perfect && incrementalTarget !== null) {
+    if (perfect && incrementalQuizPurpose === 'unlock' && incrementalTarget !== null) {
       const unlockedCard = incrementalTarget;
       setProgress((previous) => ({
         ...previous,
@@ -534,6 +542,8 @@ export default function MnemonicaApp() {
 
   const accuracy = progress.totalAnswers ? Math.round((progress.correctAnswers / progress.totalAnswers) * 100) : 0;
   const knownPercent = Math.round((progress.known.length / 52) * 100);
+  const learnedCardNumbers = useMemo(() => Array.from(new Set([...progress.known, ...progress.incrementalOrder]))
+    .sort((first, second) => first - second), [progress.known, progress.incrementalOrder]);
   const growthPoints = useMemo<GrowthPoint[]>(() => Object.entries(progress.dailyBest ?? {})
     .sort(([firstDate], [secondDate]) => firstDate.localeCompare(secondDate))
     .slice(-14)
@@ -628,18 +638,24 @@ export default function MnemonicaApp() {
 
     if (incrementalStage === 'result' && incrementalQuestions.length) {
       const percent = Math.round((incrementalScore / incrementalQuestions.length) * 100);
+      const isReview = incrementalQuizPurpose === 'review';
       return (
         <section className={`view test-result course-result ${incrementalPerfect ? 'perfect' : ''}`} aria-labelledby="course-result-title">
-          <p className="eyebrow">CUMULATIVE TEST</p>
+          <p className="eyebrow">{isReview ? 'LEARNED CARDS REVIEW' : 'CUMULATIVE TEST'}</p>
           <div className="score-ring" style={{ '--score': `${percent * 3.6}deg` } as React.CSSProperties}><div><strong>{percent}</strong><span>점</span></div></div>
-          <h1 id="course-result-title">{incrementalPerfect ? `${incrementalQuestions.length}장 누적 통과!` : '모두 맞을 때까지 한 번 더.'}</h1>
-          <p>{incrementalQuestions.length}문제 중 {incrementalScore}개 정답{incrementalPerfect ? ' · 다음에 배울 카드를 직접 고를 수 있어요.' : ` · ${incrementalWrong.length}장을 다시 연결해보세요.`}</p>
-          <div className="result-stats"><div><span>정답</span><b>{incrementalScore}</b></div><div><span>오답</span><b>{incrementalQuestions.length - incrementalScore}</b></div><div><span>통과 조건</span><b>100%</b></div></div>
-          {incrementalPerfect ? (
+          <h1 id="course-result-title">{isReview ? (incrementalPerfect ? `${incrementalQuestions.length}장 복습 완료!` : '다시 볼 카드가 보여요.') : (incrementalPerfect ? `${incrementalQuestions.length}장 누적 통과!` : '모두 맞을 때까지 한 번 더.')}</h1>
+          <p>{incrementalQuestions.length}문제 중 {incrementalScore}개 정답{isReview ? ` · 학습한 카드 ${incrementalQuestions.length}장만 출제했어요.` : (incrementalPerfect ? ' · 다음에 배울 카드를 직접 고를 수 있어요.' : ` · ${incrementalWrong.length}장을 다시 연결해보세요.`)}</p>
+          <div className="result-stats"><div><span>정답</span><b>{incrementalScore}</b></div><div><span>오답</span><b>{incrementalQuestions.length - incrementalScore}</b></div><div><span>{isReview ? '복습 범위' : '통과 조건'}</span><b>{isReview ? `${incrementalQuestions.length}장` : '100%'}</b></div></div>
+          {isReview ? (
+            <>
+              <button className="primary-button wide" onClick={() => startIncrementalQuiz('review')}>학습한 {incrementalQuestions.length}장 다시 시험보기</button>
+              <button className="secondary-button wide" onClick={continueIncrementalCourse}>카드 선택으로 돌아가기</button>
+            </>
+          ) : incrementalPerfect ? (
             <button className="primary-button wide" onClick={continueIncrementalCourse}>{incrementalQuestions.length === MNEMONICA_STACK.length ? '완료 화면 보기' : '다음 카드 고르기'} <span>→</span></button>
           ) : (
             <>
-              <button className="primary-button wide" onClick={startIncrementalQuiz}>{incrementalQuestions.length}장 다시 시험보기</button>
+              <button className="primary-button wide" onClick={() => startIncrementalQuiz('unlock')}>{incrementalQuestions.length}장 다시 시험보기</button>
               <button className="secondary-button wide" onClick={reviewIncrementalCard}>새 카드 연결 다시 보기</button>
             </>
           )}
@@ -656,8 +672,9 @@ export default function MnemonicaApp() {
             <span className="completion-mark">✓</span>
             <p className="eyebrow">COURSE COMPLETE</p>
             <h2 id="course-complete-title">52장을 모두<br />누적으로 통과했어요.</h2>
-            <p>Mnemonica 전체 스택을 한 장씩 쌓아 올렸습니다. 이제 시험 탭에서 52장 전체 기록에 도전해보세요.</p>
-            <button className="primary-button" onClick={() => { setLearnView('overview'); setTab('test'); setTestCount(52); }}>52장 시험으로 가기</button>
+            <p>Mnemonica 전체 스택을 한 장씩 쌓아 올렸습니다. 해금한 52장을 누적 코스 안에서 계속 복습할 수 있어요.</p>
+            <button className="primary-button" onClick={() => startIncrementalQuiz('review')}>학습한 52장 복습 시험</button>
+            <button className="secondary-button wide" onClick={() => { setLearnView('overview'); setTab('test'); setTestCount(52); setTestSource('learned'); }}>시험 모드로 가기</button>
             <button className={`text-button centered ${incrementalResetArmed ? 'armed' : ''}`} onClick={resetIncrementalCourse}>{incrementalResetArmed ? '정말 처음부터 시작' : '누적 코스 초기화'}</button>
           </div>
         </section>
@@ -673,6 +690,11 @@ export default function MnemonicaApp() {
             <div className="progress-track"><span style={{ width: `${(incrementalLearnedCount / 52) * 100}%` }} /></div>
             <small>남은 {52 - incrementalLearnedCount}장 중 원하는 카드를 선택하세요</small>
           </div>
+          {incrementalLearnedCount > 0 && (
+            <button className="learned-review-button" onClick={() => startIncrementalQuiz('review')}>
+              <span><small>누적 복습</small><strong>통과한 {incrementalLearnedCount}장만 시험보기</strong></span><b>→</b>
+            </button>
+          )}
           <div className="choose-heading">
             <p className="eyebrow">CHOOSE YOUR NEXT CARD</p>
             <h1 id="choose-card-title">다음으로 해금할 카드를<br />직접 골라보세요.</h1>
@@ -721,7 +743,7 @@ export default function MnemonicaApp() {
           </div>
           <p className="association-readout"><strong>{incrementalTargetCard.number}번</strong><span>은</span><strong className={incrementalTargetCard.suit === 'hearts' || incrementalTargetCard.suit === 'diamonds' ? 'red-suit' : ''}>{incrementalTargetCard.rank}{incrementalTargetCard.symbol}</strong></p>
           <p className="teach-tip">번호와 카드 이름을 소리 내어 3번 읽은 뒤 시험을 시작해보세요.</p>
-          <button className="primary-button wide course-start" onClick={startIncrementalQuiz}>지금까지 {incrementalNextCount}장 시험보기 <span>→</span></button>
+          <button className="primary-button wide course-start" onClick={() => startIncrementalQuiz('unlock')}>지금까지 {incrementalNextCount}장 시험보기 <span>→</span></button>
           <button className="text-button centered" onClick={() => { setIncrementalTarget(null); setIncrementalStage('choose'); }}>다른 카드 고르기</button>
         </div>
         {incrementalLearnedCount > 0 && <button className={`text-button centered ${incrementalResetArmed ? 'armed' : ''}`} onClick={resetIncrementalCourse}>{incrementalResetArmed ? '정말 처음부터 시작' : '누적 코스 초기화'}</button>}
@@ -790,9 +812,17 @@ export default function MnemonicaApp() {
         <span>?</span>
       </div>
       <div className="setting-group"><label>출제 방식</label><SegmentedMode value={testMode} onChange={setTestMode} /></div>
+      <div className="setting-group">
+        <label>시험 범위</label>
+        <div className="test-source-options">
+          <button className={testSource === 'all' ? 'selected' : ''} onClick={() => setTestSource('all')}><span>전체 스택</span><strong>52장</strong></button>
+          <button className={testSource === 'learned' ? 'selected' : ''} onClick={() => setTestSource('learned')}><span>학습한 카드</span><strong>{learnedCardNumbers.length}장</strong></button>
+        </div>
+        <p className={`source-note ${testSource === 'learned' && !learnedCardNumbers.length ? 'empty' : ''}`}>{testSource === 'learned' ? (learnedCardNumbers.length ? '누적 통과 및 외우기에서 완료한 카드만 출제합니다.' : '아직 학습 완료로 기록된 카드가 없어요.') : 'Mnemonica 52장 전체에서 출제합니다.'}</p>
+      </div>
       <div className="setting-group"><label>문제 수</label><div className="count-options">{[10, 20, 52].map((count) => <button key={count} className={testCount === count ? 'selected' : ''} onClick={() => setTestCount(count)}><b>{count}</b><span>문제</span></button>)}</div></div>
-      <button className="primary-button wide start-test" onClick={() => startTest()}>시험 시작하기 <span>→</span></button>
-      {wrongAnswers.length > 0 && <button className="text-button centered" onClick={() => startTest(wrongAnswers)}>직전 오답만 다시 풀기</button>}
+      <button className="primary-button wide start-test" onClick={() => startTest(testSource === 'learned' ? learnedCardNumbers : undefined)} disabled={testSource === 'learned' && !learnedCardNumbers.length}>{testSource === 'learned' ? `학습한 ${Math.min(testCount, learnedCardNumbers.length)}장 시험 시작` : '시험 시작하기'} <span>→</span></button>
+      {wrongAnswers.length > 0 && <button className="text-button centered" onClick={() => startTest(wrongAnswers, testSource === 'learned' ? learnedCardNumbers : MNEMONICA_STACK.map((card) => card.number))}>직전 오답만 다시 풀기</button>}
     </section>
   );
 
@@ -807,7 +837,7 @@ export default function MnemonicaApp() {
           <h1>{percent >= 90 ? '거의 완벽해요.' : percent >= 70 ? '좋은 흐름이에요.' : '틀린 카드가 자라고 있어요.'}</h1>
           <p>{questions.length}문제 중 {testScore}개 정답 · 오답 {wrongAnswers.length}장</p>
           <div className="result-stats"><div><span>정답</span><b>{testScore}</b></div><div><span>오답</span><b>{questions.length - testScore}</b></div><div><span>누적 정확도</span><b>{accuracy}%</b></div></div>
-          {wrongAnswers.length > 0 && <button className="primary-button wide" onClick={() => startTest(wrongAnswers)}>오답만 다시 풀기</button>}
+          {wrongAnswers.length > 0 && <button className="primary-button wide" onClick={() => startTest(wrongAnswers, testSource === 'learned' ? learnedCardNumbers : MNEMONICA_STACK.map((card) => card.number))}>오답만 다시 풀기</button>}
           <button className="secondary-button wide" onClick={() => { setQuestions([]); setTestComplete(false); }}>새 시험 만들기</button>
         </section>
       );
